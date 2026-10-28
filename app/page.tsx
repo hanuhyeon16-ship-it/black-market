@@ -100,7 +100,7 @@ type GameState = {
   bonusTurn: PlayerId | null;
 };
 
-const MAX_ROUNDS = 15;
+const MAX_ROUNDS = 24;
 const STARTING_COINS = 1000;
 const START_BONUS = 200;
 const TAX_AMOUNT = 120;
@@ -116,9 +116,9 @@ const LANDING_DELAY = 360;
 
 const MARKET_HEAT_STAGES = [
   { level: 1, minRound: 1, label: "잠복", multiplier: 1, note: "기본 통행료" },
-  { level: 2, minRound: 5, label: "과열", multiplier: 1.25, note: "통행료 25% 상승" },
-  { level: 3, minRound: 9, label: "폭주", multiplier: 1.5, note: "통행료 50% 상승" },
-  { level: 4, minRound: 13, label: "붕괴 직전", multiplier: 2, note: "통행료 2배" },
+  { level: 2, minRound: 7, label: "과열", multiplier: 1.25, note: "통행료 25% 상승" },
+  { level: 3, minRound: 13, label: "폭주", multiplier: 1.5, note: "통행료 50% 상승" },
+  { level: 4, minRound: 19, label: "붕괴 직전", multiplier: 2, note: "통행료 2배" },
 ] as const;
 
 const TOKEN_SKINS: { id: SkinId; name: string; icon: string }[] = [
@@ -1511,7 +1511,7 @@ export default function Home() {
         <div className="rules-steps">
           <article><b>1</b><div><strong>주사위를 굴린다</strong><p>두 주사위 합만큼 한 칸씩 이동합니다. 같은 숫자가 나오면 거래가 끝난 뒤 한 번 더 굴립니다.</p></div></article>
           <article><b>2</b><div><strong>빈 구역은 산다</strong><p>돈이 충분하면 구역을 구매하세요. 내 구역에 다시 도착하면 최대 3단계까지 확장합니다.</p></div></article>
-          <article><b>3</b><div><strong>시장이 점점 과열된다</strong><p>5·9·13라운드마다 통행료가 올라 마지막에는 기본 통행료 × 건물 레벨 × 2배가 됩니다.</p></div></article>
+          <article><b>3</b><div><strong>시장이 점점 과열된다</strong><p>7·13·19라운드에 통행료가 올라 마지막에는 기본 통행료 × 건물 레벨 × 2배가 됩니다.</p></div></article>
           <article><b>4</b><div><strong>포커에서는 선택한다</strong><p>내 카드가 높으면 콜하세요. 낮아도 크게 걸어 상대를 폴드시킬 수 있습니다. 에이스(A)가 가장 높습니다.</p></div></article>
         </div>
 
@@ -1525,7 +1525,7 @@ export default function Home() {
         <div className="rules-heat-scale" aria-label="라운드별 시장 위험도">
           {MARKET_HEAT_STAGES.map((stage, index) => (
             <div className={`heat-${stage.level}`} key={stage.level}>
-              <small>{index === 0 ? "1~4" : index === 1 ? "5~8" : index === 2 ? "9~12" : "13~15"} 라운드</small>
+              <small>{stage.minRound}~{(MARKET_HEAT_STAGES[index + 1]?.minRound ?? MAX_ROUNDS + 1) - 1} 라운드</small>
               <strong>{stage.label}</strong>
               <span>통행료 ×{formatMultiplier(stage.multiplier)}</span>
             </div>
@@ -1620,7 +1620,7 @@ export default function Home() {
             <div className="hero-rules">
               <div><b>01</b><span>구역 인수</span><small>도착한 땅을 사고 최대 3단계까지 확장</small></div>
               <div><b>02</b><span>포커 블러프</span><small>$50·$100·$200를 걸고 콜 또는 폴드</small></div>
-              <div><b>03</b><span>시장 과열</span><small>5·9·13라운드마다 통행료 상승 · 최대 2배</small></div>
+              <div><b>03</b><span>시장 과열</span><small>7·13·19라운드에 통행료 상승 · 최대 2배</small></div>
             </div>
           </div>
         </section>
