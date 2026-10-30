@@ -387,6 +387,8 @@ function makeHoldings() {
   ) as Record<number, Holding>;
 }
 
+// 게임 모드, 닉네임, 말 스킨을 받아 새 게임의 시작 상태를 만듭니다.
+// 두 플레이어의 현금은 $1,000, 위치는 출발 칸, 라운드는 1로 설정합니다.
 function makeGame(
   mode: Mode,
   names: [string, string] = ["플레이어 1", "플레이어 2"],
@@ -449,14 +451,23 @@ function formatMultiplier(value: number) {
   return Number.isInteger(value) ? String(value) : String(value).replace(/0+$/, "");
 }
 
+// 현재 라운드에 맞는 시장 단계와 통행료 배율을 찾습니다.
+// 1~6라운드 1배, 7~12라운드 1.25배, 13~18라운드 1.5배, 19~24라운드 2배입니다.
 function getMarketHeat(round: number) {
+  // 배열을 복사해 뒤집은 뒤, 시작 라운드가 현재 라운드 이하인 첫 단계를 고릅니다.
+  // 높은 단계부터 확인하므로 현재 적용할 수 있는 가장 높은 단계가 선택됩니다.
   return [...MARKET_HEAT_STAGES]
     .reverse()
     .find((stage) => round >= stage.minRound) ?? MARKET_HEAT_STAGES[0];
 }
 
+// 땅 정보(tile), 건물 단계(level), 현재 라운드(round)를 받아 통행료를 반환합니다.
+// 반환한 금액은 상대 땅에 도착했을 때 실제 정산에 사용합니다.
 function calculateRent(tile: Tile, level: number, round: number) {
+  // 기본 통행료 × 건물 단계 × 시장 배율을 계산합니다.
+  // 기본 통행료가 없으면 0을 사용하고, 건물 단계는 최소 1로 계산합니다.
   const rawRent = (tile.rent ?? 0) * Math.max(1, level) * getMarketHeat(round).multiplier;
+  // 10달러 단위로 올림합니다. 예를 들어 125달러는 130달러가 됩니다.
   return Math.ceil(rawRent / 10) * 10;
 }
 
@@ -479,17 +490,23 @@ function buildingLevels(state: GameState, player: PlayerId) {
     .reduce((total, holding) => total + holding.level, 0);
 }
 
+// 게임 상태와 플레이어 번호를 받아 현금과 보유 자산을 합친 순자산을 반환합니다.
 function netWorth(state: GameState, player: PlayerId) {
   let total = state.players[player].coins;
+  // 보드의 모든 칸을 하나씩 확인하되, 이 플레이어가 소유한 땅만 계산합니다.
   for (const tile of BOARD) {
     const holding = state.holdings[tile.id];
     if (tile.kind !== "property" || holding?.owner !== player) continue;
+    // 확장 1회 비용은 땅 가격의 55%를 올림한 금액입니다.
     const upgradeCost = Math.ceil((tile.price ?? 0) * 0.55);
+    // 1단계는 땅 구입 가격에 포함되어 있으므로 추가 건물 비용은 (단계 - 1)번 더합니다.
     total += (tile.price ?? 0) + Math.max(0, holding.level - 1) * upgradeCost;
   }
   return total;
 }
 
+// 24라운드 종료 후 순자산 → 현금 → 보유 구역 수 → 건물 단계 합 순서로 비교합니다.
+// 모두 같으면 선공인 0번 플레이어를 승자로 반환합니다.
 function ledgerWinner(state: GameState): PlayerId {
   const worth = [netWorth(state, 0), netWorth(state, 1)] as const;
   if (worth[0] !== worth[1]) return worth[0] > worth[1] ? 0 : 1;
@@ -503,6 +520,7 @@ function ledgerWinner(state: GameState): PlayerId {
   return 0;
 }
 
+// 한 플레이어의 돈을 다른 플레이어에게 보내고, 돈을 낸 쪽의 파산 여부도 확인합니다.
 function transferCoins(
   state: GameState,
   from: PlayerId,
@@ -511,6 +529,7 @@ function transferCoins(
   message: string,
 ) {
   const players = clonePlayers(state.players);
+  // 가진 돈보다 큰 금액을 청구받아도 남아 있는 현금까지만 지급합니다.
   const paid = Math.min(amount, players[from].coins);
   players[from].coins -= paid;
   players[to].coins += paid;
@@ -576,6 +595,8 @@ function drawEvent(state: GameState, playerId: PlayerId): GameState {
   };
 }
 
+// 이동을 마친 플레이어가 도착한 칸을 확인하고, 처리 결과를 새 게임 상태로 반환합니다.
+// 땅에서는 소유자를 비교하고, 다른 칸에서는 포커·사건·세금 등의 규칙을 적용합니다.
 function landOnTile(state: GameState, playerId: PlayerId): GameState {
   const tile = BOARD[state.players[playerId].position];
   const player = state.players[playerId];
@@ -583,6 +604,7 @@ function landOnTile(state: GameState, playerId: PlayerId): GameState {
 
   if (tile.kind === "property") {
     const holding = state.holdings[tile.id];
+    // 주인이 없는 땅이면 바로 돈을 빼지 않고, 먼저 구매 선택을 표시합니다.
     if (holding.owner === null) {
       return {
         ...state,
@@ -592,6 +614,7 @@ function landOnTile(state: GameState, playerId: PlayerId): GameState {
         lastEvent: "새 구역 판매",
       };
     }
+    // 내 땅이면 최대 3단계까지 건물을 확장할 수 있는지 확인합니다.
     if (holding.owner === playerId) {
       if (holding.level < 3) {
         const cost = Math.ceil((tile.price ?? 0) * 0.55);
@@ -612,6 +635,7 @@ function landOnTile(state: GameState, playerId: PlayerId): GameState {
       };
     }
 
+    // 남은 경우는 상대의 땅입니다. 통행료를 계산해 현재 플레이어에게서 소유자에게 보냅니다.
     const heat = getMarketHeat(state.round);
     const rent = calculateRent(tile, holding.level, state.round);
     return transferCoins(
@@ -715,8 +739,10 @@ function landOnTile(state: GameState, playerId: PlayerId): GameState {
   };
 }
 
+// 한 차례의 처리가 끝나면 다음 차례나 게임 종료 상태를 반환합니다.
 function advanceTurn(state: GameState): GameState {
   if (state.phase === "finished") return state;
+  // 더블로 얻은 추가 차례가 있으면 플레이어와 라운드를 바꾸지 않고 다시 굴립니다.
   if (state.bonusTurn === state.current) {
     return {
       ...state,
@@ -731,7 +757,9 @@ function advanceTurn(state: GameState): GameState {
     };
   }
   const next = otherPlayer(state.current);
+  // 1번 플레이어의 차례까지 끝났을 때만 라운드를 1 올립니다.
   const nextRound = state.current === 1 ? state.round + 1 : state.round;
+  // 24라운드까지 모두 진행했다면 다음 라운드를 시작하지 않고 승자를 정합니다.
   if (nextRound > MAX_ROUNDS) {
     const leftWorth = netWorth(state, 0);
     const rightWorth = netWorth(state, 1);
@@ -1050,14 +1078,18 @@ export default function Home() {
     };
   }, [onlineSession, screen]);
 
+  // 주사위 굴리기 버튼이나 스페이스바 입력으로 실행됩니다.
+  // 두 주사위의 합만큼 말을 한 칸씩 움직인 뒤 landOnTile()로 도착 칸을 처리합니다.
   const performRoll = useCallback(() => {
     const current = gameRef.current;
+    // 이미 이동 중이거나 게임이 끝났다면 중복 입력을 처리하지 않습니다.
     if (current.phase !== "roll" || current.winner !== null) return;
     const playerId = current.current;
     if (
       current.mode === "online" &&
       onlineSessionRef.current?.playerId !== playerId
     ) return;
+    // 두 주사위 값을 무작위로 정하고, 같은 값이면 추가 차례를 예약합니다.
     const first = Math.ceil(Math.random() * 6);
     const second = Math.ceil(Math.random() * 6);
     const isDouble = first === second;
@@ -1104,6 +1136,7 @@ export default function Home() {
           : latest,
       );
 
+      // 반복문으로 한 칸씩 이동하고 잠깐씩 기다려 이동 과정을 화면에 보여 줍니다.
       for (let step = 1; step <= steps; step += 1) {
         await wait(MOVE_STEP_DELAY);
         if (motionRunRef.current !== runId) return;
@@ -1111,6 +1144,7 @@ export default function Home() {
           if (latest.phase !== "moving" || latest.current !== playerId) return latest;
           const players = clonePlayers(latest.players);
           const oldPosition = players[playerId].position;
+          // 나머지 연산(%)으로 마지막 칸 다음에는 다시 0번 출발 칸으로 돌아갑니다.
           const nextPosition = (oldPosition + 1) % BOARD.length;
           const passedStart = nextPosition === 0;
           players[playerId].position = nextPosition;
@@ -1130,6 +1164,7 @@ export default function Home() {
         });
       }
 
+      // 모든 이동이 끝난 뒤에만 도착 칸의 구매·통행료·사건 등을 처리합니다.
       await wait(LANDING_DELAY);
       if (motionRunRef.current !== runId) return;
       setGame((latest) => {
@@ -1159,6 +1194,7 @@ export default function Home() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [performRoll, screen]);
 
+  // 구매·확장 화면의 선택(accept)을 받아 현금과 땅 정보를 갱신합니다.
   const resolveDecision = useCallback((accept: boolean) => {
     const current = gameRef.current;
     const decision = current.decision;
@@ -1172,8 +1208,10 @@ export default function Home() {
     const players = clonePlayers(current.players);
     const holdings = { ...current.holdings };
 
+    // 사용자가 동의하고 비용을 낼 수 있을 때만 돈을 빼고 거래를 진행합니다.
     if (accept && players[playerId].coins >= decision.cost) {
       players[playerId].coins -= decision.cost;
+      // 구매라면 소유자를 정하고 1단계로 시작하며, 확장이라면 기존 단계를 1 올립니다.
       if (decision.kind === "buy") {
         holdings[tile.id] = { owner: playerId, level: 1 };
       } else {
@@ -1208,6 +1246,7 @@ export default function Home() {
     }
   }, []);
 
+  // 포커의 판돈과 폴드 여부를 받아 카드 승부를 정산하고 화면에 결과를 표시합니다.
   const revealPoker = useCallback(
     (current: GameState, bet: number, folded: boolean, folder?: PlayerId) => {
       const poker = current.poker;
@@ -1217,6 +1256,7 @@ export default function Home() {
       let result = "";
       let transfer = 0;
 
+      // 폴드한 사람은 가진 현금 범위에서 최대 $30을 상대에게 지급합니다.
       if (folded && folder !== undefined) {
         winner = otherPlayer(folder);
         transfer = Math.min(FOLD_COST, players[folder].coins);
@@ -1224,8 +1264,10 @@ export default function Home() {
         players[winner].coins += transfer;
         result = `${players[folder].name} 폴드 · ${players[winner].name} ${formatMoney(transfer)} 획득`;
       } else if (poker.cards[0] === poker.cards[1]) {
+        // 같은 카드면 돈을 옮기지 않습니다.
         result = `동점 ${cardLabel(poker.cards[0])} · 코인 이동 없음`;
       } else {
+        // 카드 숫자가 높은 사람이 이기며, 패자는 가진 현금 범위에서 판돈을 지급합니다.
         winner = poker.cards[0] > poker.cards[1] ? 0 : 1;
         const loser = otherPlayer(winner);
         transfer = Math.min(bet, players[loser].coins);
@@ -1234,6 +1276,7 @@ export default function Home() {
         result = `${players[winner].name} 승리 · ${formatMoney(transfer)} 획득`;
       }
 
+      // 정산 뒤 현금이 0 이하인 사람이 생기면 포커 결과와 함께 게임도 종료합니다.
       const bankrupt = players.some((player) => player.coins <= 0);
       const bankruptPlayer = players.find((player) => player.coins <= 0);
       setGame({
